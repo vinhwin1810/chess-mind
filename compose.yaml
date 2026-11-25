@@ -1,0 +1,84 @@
+x-api-env: &api-env
+  DATABASE_URL: postgresql+psycopg://chessmind:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@db:5432/chessmind
+  REDIS_URL: redis://redis:6379/0
+
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: chessmind
+      POSTGRES_DB: chessmind
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "chessmind", "-d", "chessmind"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+  migrate:
+    build:
+      context: ./apps/api
+      target: api
+    environment: *api-env
+    command: ["alembic", "upgrade", "head"]
+    depends_on:
+      db:
+        condition: service_healthy
+  api:
+    build:
+      context: ./apps/api
+      target: api
+    environment:
+      <<: *api-env
+      CHESSMIND_DEMO_MODE: ${CHESSMIND_DEMO_MODE:-false}
+      WEB_ORIGIN: http://localhost:3000
+    ports: ["127.0.0.1:8000:8000"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+  worker:
+    build:
+      context: ./apps/api
+      target: worker
+    environment:
+      <<: *api-env
+      ENGINE_SECONDS: ${ENGINE_SECONDS:-0.2}
+      ENGINE_HASH_MB: ${ENGINE_HASH_MB:-32}
+    command: ["celery", "-A", "chessmind.worker:celery", "worker", "--loglevel=INFO", "--concurrency=${WORKER_CONCURRENCY:-1}"]
+    cpus: ${WORKER_CPUS:-1}
+    mem_limit: ${WORKER_MEMORY:-512m}
+    restart: on-failure
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+  beat:
+    build:
+      context: ./apps/api
+      target: api
+    environment: *api-env
+    command: ["celery", "-A", "chessmind.worker:celery", "beat", "--loglevel=INFO", "--schedule=/tmp/chessmind-beat"]
+    restart: on-failure
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+  web:
+    build: ./apps/web
+    ports: ["127.0.0.1:3000:3000"]
+    depends_on: [api]
+
+volumes:
+  postgres_data:

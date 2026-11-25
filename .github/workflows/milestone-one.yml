@@ -1,0 +1,34 @@
+name: Milestone 1
+
+on: [push, pull_request]
+
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install backend test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y stockfish
+          python -m pip install -r apps/api/requirements-dev.txt
+      - name: Backend tests
+        working-directory: apps/api
+        env:
+          STOCKFISH_PATH: /usr/games/stockfish
+        run: python -m pytest -q
+      - name: Build and start the stack
+        run: |
+          printf 'POSTGRES_PASSWORD=%s\nCHESSMIND_DEMO_MODE=true\n' "$(openssl rand -hex 24)" > .env
+          docker compose up -d --build
+      - name: Exercise Postgres, Redis, and Stockfish
+        run: python infrastructure/smoke.py
+      - name: Verify the web server responds
+        run: curl --fail --retry 15 --retry-connrefused --retry-delay 2 http://localhost:3000
+      - if: failure()
+        run: docker compose logs --tail=150
+      - if: always()
+        run: docker compose down

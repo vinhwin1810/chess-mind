@@ -1,0 +1,11 @@
+[Event "En passant and castling"]
+[Result "*"]
+
+1. e4 a6 2. e5 d5 3. exd6 Nf6 4. Nf3 e6 5. Be2 Be7 6. O-O O-O *
+
+[Event "Promotion"]
+[SetUp "1"]
+[FEN "1r5k/P7/8/8/8/8/8/7K w - - 0 1"]
+[Result "*"]
+
+1. axb8=Q+ *
